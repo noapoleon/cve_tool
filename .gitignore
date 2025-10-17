@@ -1,0 +1,29 @@
+# Env stuff
+.env
+*.env
+env/
+ENV/
+.ENV/
+venv/
+VENV/
+.venv/
+
+# Editor / OS Specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
