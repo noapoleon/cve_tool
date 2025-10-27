@@ -27,3 +27,6 @@ build/
 dist/
 *.egg-info/
 *.egg
+
+# test stuff
+test_files/
