@@ -6,6 +6,8 @@ name = "pypi"
 [packages]
 requests = "*"
 numpy = "*"
+pandas = "*"
+openpyxl = "*"
 
 [dev-packages]
 
