@@ -4,10 +4,15 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-requests = "*"
-numpy = "*"
+argparse = "*"
+aiohttp = "*"
+asyncio = "*"
+websockets = "*"
+pathlib = "*"
 pandas = "*"
 openpyxl = "*"
+numpy = "*"
+requests = "*"
 
 [dev-packages]
 
