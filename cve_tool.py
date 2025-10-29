@@ -119,8 +119,9 @@ async def download_cve_jsons(
         progress(eraser="")
         await asyncio.gather(*tasks)
         stats.dl.end = time.time()
+    print()
 
-    sys.exit(1)
+    # sys.exit(1)
     # Fetch urls
     # async with aiohttp.ClientSession() as session:
     #    tasks = []
@@ -252,7 +253,7 @@ def parse_args():
     parser.add_argument("-s", "--skip-download", action="store_true", help="Skip downloading CVE data, read directly from jsons_dir")
     # TODO: implement throttling
     #parser.add_argument("-t", "--throttle-download", type=int, default=50, help="Max number of concurrent CVE JSONs download requests")
-    parser.add_argument("--disable-stats", action="store_true", default=50, help="Don't print download and process statistics")
+    parser.add_argument("--disable-stats", action="store_true", help="Don't print download and process statistics")
     parser.add_argument("-v", "--version", action="version", version="%(prog)s v1.1")
 
     # Processing modes group
@@ -340,16 +341,20 @@ def load_cve_map(input_xlsx: Path) -> dict:
     stats.cve_map = cve_map
     return cve_map
 
-def statistics():
+def statistics(args: Namespace):
     if stats.dl.fails:
         for fail in stats.dl.fails:
             log.error(f"Failed to download: {fail[0]} from {fail[1]} because {fail[2]}")
     print("--- Statistics ---")
     print(f"Total CVEs: {len(stats.cve_map)}")
+    # Downloads
     print("[CVE JSONs Downloads]")
-    print(f"Success: {stats.dl.total - len(stats.dl.fails)}, " +
-        f"Fails: {len(stats.dl.fails)}, Total: {stats.dl.total}")
-    print(f"Download duration: {stats.dl.end - stats.dl.start} seconds")
+    if args.skip_download:
+        print("Skipped.")
+    else:
+        print(f"Success: {stats.dl.total - len(stats.dl.fails)}\n" +
+            f"Fails: {len(stats.dl.fails)}\nTotal: {stats.dl.total}")
+        print(f"Download duration: {round(stats.dl.end - stats.dl.start, 3)} seconds")
     print("--- Statistics ---")
 
 def main():
@@ -357,8 +362,8 @@ def main():
 
     # Prepare operations
     make_jsons_dir(args.jsons_dir)
-    cve_map = load_cve_map(args.input_xlsx)
 
+    cve_map = load_cve_map(args.input_xlsx)
     # Download cve jsons
     if not args.skip_download:
         asyncio.run(download_cve_jsons(URL_BASE, args.jsons_dir, cve_map))
@@ -368,7 +373,7 @@ def main():
 
     # Stats (and errors)
     if not args.disable_stats:
-        statistics()
+        statistics(args)
     # Write processed output
     #df.writesomethinglala
 
