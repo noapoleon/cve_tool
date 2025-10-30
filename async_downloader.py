@@ -14,40 +14,55 @@ import time
 
 async def async_downloader(
         url_to_filename: List[Tuple[str, str]],
-        progress_label: Optional[str] = "Downloading ",
         timeout: float = 10.0,
-        show_stats: bool = True,
-        show_errors: bool = True,
+        show_progress: bool = False,
+        show_stats: bool = False,
         max_concurrent: int = 100,
         on_fail: Optional[Callable[[str, str, Exception], None]] = None,
         # TODO: func_progress: Optional[Callable[something...]] = None,
-) -> None:
+) -> SimpleNamespace:
     """Downloads stuff kinda quick
 
     Args:
         on_fail: Optional callback called on download failure.
             Signature should be: on_fail(url: str, filename: str, exc: Exception)
+    Returns:
+        stats (SimpleNamespace): Downloads stats comprised of:
+            success (int): number of successful downloads
+            fails (int): number of failed downloads
+            total (int): total number of attempted downloads
+            failed_items (list[url: str, filename: str, exc: Exception): detailed list of errors during download
+            start (float): start timestamp of the download
+            end (float): end timestamp of the download
+            duration (float): duration of the download
     """
     # TODO: return stats or something
     stats = SimpleNamespace(
-        done = 0,
         success = 0,
-        fails = [],
+        fails = 0,
         total = len(url_to_filename),
+        failed_items = [],
         start = 0,
-        end = 0
+        end = 0,
+        duration = 0,
     )
     lock = asyncio.Lock()
     sem = asyncio.Semaphore(max_concurrent)
 
-    def progress(eraser = "\r"):
-        if not stats.fails:
-            print(f"{eraser}{progress_label}[{stats.done}/{stats.total}]", end="")
-        else:
-            print(f"{eraser}{progress_label}[{stats.done}/{stats.total}], " +
-                f"fails [{len(stats.fails)}/{stats.total}]", end="")
+    def _show_progress(eraser: str = "\r"):
+        if not show_progress:
+            return
+        done = stats.success + stats.fails
+        bar_length = 30
+        filled = int((done / stats.total) * bar_length)
+        bar = "#" * filled + "-" * (bar_length - filled)
+        print(f"{eraser}[{bar}] {done}/{stats.total} | " +
+            f"Success: {stats.success} | " +
+            f"Fails: {stats.fails} | " +
+            f"Duration: {round(time.time() - stats.start, 3)}", 
+              end="" if done != stats.total else None)
 
-    async def async_fetch(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
+    async def _fetch_one(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
         async with sem:
             try:
                 async with session.get(url, timeout=timeout) as response:
@@ -63,30 +78,30 @@ async def async_downloader(
                         json.dump(data, f, indent=2)
                     async with lock:
                         stats.success += 1
-            except Exception as e:
-                if on_fail:
-                    on_fail(url, filename, e)
+            except Exception as exc:
                 async with lock:
-                    stats.fails.append([url, filename, e])
+                    stats.fails += 1
+                    stats.failed_items.append([url, filename, exc])
+                if on_fail:
+                    on_fail(url, filename, exc)
             finally:
                 async with lock:
-                    stats.done += 1
-                    progress()
+                    _show_progress()
                     # TODO: progress_func(stats)
 
     async with aiohttp.ClientSession() as session:
-        tasks = [async_fetch(session, url, filename) for url, filename in url_to_filename]
+        tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename]
         stats.start = time.time()
-        if progress_label is not None:
-            progress("")
+        _show_progress()
             # TODO: progress_func(stats)
         await asyncio.gather(*tasks)
         stats.end = time.time()
-    if progress_label is not None:
-        print()
-    if show_errors:
-        for url, filename, e in stats.fails:
-            print(f"[ERROR] Failed to download {url} -> {filename}: {e}")
+        stats.duration = stats.end - stats.start
+    if show_stats:
+        print(f"[DONE] Success: {stats.success}/{stats.total} | " +
+            f"Fails: {stats.fails}/{stats.total} | " +
+            f"Duration: {stats.duration}")
+    return stats
 
 # TODO: Sync wrapper so you can use it without knowing async stuff
 #       Should be the main function if made into a module
@@ -157,7 +172,8 @@ async def main():
     def show_error(url, filename, e):
         print(f"Failed to download {url} to {filename}: {e}")
 
-    await async_downloader(files, progress_label="lalala", on_fail=show_error)
+    # await async_downloader(files, on_fail=show_error, show_progress=True, show_stats=True)
+    await async_downloader(files, show_progress=True, show_stats=True)
     # asyncio.run(async_downloader(files))
 
 
