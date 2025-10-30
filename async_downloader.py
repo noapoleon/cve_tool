@@ -59,7 +59,7 @@ async def async_downloader(
         print(f"{eraser}[{bar}] {done}/{stats.total} | " +
             f"Success: {stats.success} | " +
             f"Fails: {stats.fails} | " +
-            f"Duration: {round(time.time() - stats.start, 3)}", 
+            f"Duration: {round(time.time() - stats.start, 3)}s", 
               end="" if done != stats.total else None)
 
     async def _fetch_one(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
@@ -100,7 +100,7 @@ async def async_downloader(
     if show_stats:
         print(f"[DONE] Success: {stats.success}/{stats.total} | " +
             f"Fails: {stats.fails}/{stats.total} | " +
-            f"Duration: {stats.duration}")
+            f"Duration: {round(stats.duration, 3)}s")
     return stats
 
 # TODO: Sync wrapper so you can use it without knowing async stuff
