@@ -15,6 +15,7 @@ import time
 async def async_downloader(
         url_to_filename: List[Tuple[str, str]],
         timeout: float = 10.0,
+        verify: bool = False,
         show_progress: bool = False,
         show_stats: bool = False,
         max_concurrent: int = 100,
@@ -65,7 +66,7 @@ async def async_downloader(
     async def _fetch_one(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
         async with sem:
             try:
-                async with session.get(url, timeout=timeout) as response:
+                async with session.get(url, timeout=timeout, ssl=verify) as response:
                     response.raise_for_status()
                     # TODO: maybe implement on_success callback
                     # TODO: support multiple default modes:
@@ -173,7 +174,11 @@ async def main():
         print(f"Failed to download {url} to {filename}: {e}")
 
     # await async_downloader(files, on_fail=show_error, show_progress=True, show_stats=True)
-    await async_downloader(files, show_progress=True, show_stats=True)
+    stats = await async_downloader(files, show_progress=True, show_stats=True)
+    for fail in stats.failed_items:
+        print(fail)
+        print(f"Failed to download from {fail[0]} to {fail[1]}: {fail[2]}")
+
     # asyncio.run(async_downloader(files))
 
 
