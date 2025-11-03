@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 from argparse import ArgumentParser, Namespace
 import sys
 from pathlib import Path
@@ -54,28 +55,44 @@ def get_cots_name(s: str) -> str:
 
 
 #def get_cve_details(cve: str, cots: str, data: dict) -> Optional[str]:
-def get_cve_remediations(cve:str, cots: str, data: dict) -> str:
+# TODO: change 'parsed' arg name, its a list representing the current row data
+# TODO: processing mode functions should know how many headers they have
+#       Pass them the args mode dict thing
+def get_cve_remediations(headers: list, parsed: list, cve:str, cots: str, data: dict) -> None:
+    vals = [""] * len(headers)
     if data is None:
-        return "cve_json_error"
-    try:
-        name = get_cots_name(cots)
-        pid = "red_hat_enterprise_linux_8:" + name
+        vals = ["cve_json_error" for val in vals]
+        parsed += vals
+        return
+    name = get_cots_name(cots)
 
-        # TODO: check if safe!
-        # what if no "vulnerabilities" field or smth ?
-        remediations = data["vulnerabilities"][0]["remediations"]
-        for rem in remediations:
-            if rem["category"] == "vendor_fix":
-                if any(name in e and "el8" in e for e in rem["product_ids"]):
-                    return "vendor_fix"
-            if rem["category"] == "workaround":
-                continue
-            if pid in rem["product_ids"]:
-                return rem["category"]
-        return "cots_not_found"
-    except Exception:
-        # silent fail in console but not in excel file
-        return "cots_not_found"
+    def get_rem_for_el(rhel_ver: str) -> str:
+        try:
+            pid = f"red_hat_enterprise_linux_{rhel_ver}:" + name
+            el_ver = f"el{rhel_ver}"
+
+            # TODO: check if safe!
+            # what if no "vulnerabilities" field or smth?
+            # should use .get instead, not sure if that's for json objects
+            # only tho or works with python dicts
+            remediations = data["vulnerabilities"][0]["remediations"]
+            for rem in remediations:
+                if rem["category"] == "vendor_fix":
+                    if any(name in e and el_ver in e for e in rem["product_ids"]):
+                        return "vendor_fix"
+                if rem["category"] == "workaround":
+                    continue
+                if pid in rem["product_ids"]:
+                    return rem["category"]
+            return "cots_not_found"
+        except Exception:
+            # silent fail in console but not in excel file
+            return "cots_not_found"
+    vals[0] = get_rem_for_el("8")
+    vals[1] = get_rem_for_el("10")
+    # TODO: make sure the order of function calls and rows is maintained
+    # or data will be in the wrong column
+    parsed += vals
 
 
 async def download_cve_jsons(
@@ -171,7 +188,8 @@ def process_jsons(jsons_dir: Path, grouped: dict, args: Namespace) -> list:
         for cots in cotss:
             parsed = [cve, cots]
             for mode in args.processing_modes_used:
-                parsed.append(mode["parser_func"](cve, cots, data))
+                # parsed.append(mode["parser_func"](cve, cots, data))
+                mode["parser_func"](mode["headers"], parsed, cve, cots, data)
             rows.append(parsed)
             i += 1
             if not fails:
@@ -263,7 +281,9 @@ def parse_args():
         {
             "flag": "--remediations",
             "help": "Add a 'details' column with remediation information",
-            "headers": ["details"], # TODO: change code because now headers is list instead of string
+            # TODO: change code because now headers is list instead of string
+            #"headers": ["details el8"],
+            "headers": ["details el8", "details el10"],
             "parser_func": get_cve_remediations,
         },
         ### Add future modes here ###
@@ -367,15 +387,21 @@ def main():
     # Download cve jsons
     if not args.skip_download:
         asyncio.run(download_cve_jsons(URL_BASE, args.jsons_dir, cve_map))
+
     # Run process modes 
-    #if args.processing_modes_used:
-    #    df = process_jsons(cve_map)
+    if args.processing_modes_used:
+        new_rows = process_jsons(args.jsons_dir, cve_map, args)
+        headers = [CVE_COL, COTS_COL]
+        headers += [header for mode in args.processing_modes_used for header in mode["headers"]]
+        df = pd.DataFrame(new_rows, columns=headers)
+        # write output
+        # TODO: pretty output
+        df.to_excel(args.output_xlsx, index=False)
 
     # Stats (and errors)
     if not args.disable_stats:
         statistics(args)
-    # Write processed output
-    #df.writesomethinglala
+
 
 
 if __name__ == "__main__":
