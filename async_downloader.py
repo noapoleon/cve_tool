@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 from argparse import ArgumentParser, Namespace
 import sys
 from pathlib import Path
@@ -107,20 +105,24 @@ async def async_downloader(
 # TODO: Sync wrapper so you can use it without knowing async stuff
 #       Should be the main function if made into a module
 #def sync_downloader(args...):
-def sync_downloader():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # inside async context
-        # return asyncio.create_task(async_downloader(args...))
-        pass
-    else:
-        # sync context or inactive loop
-        # return asyncio.run(async_downloader(args...))
-        pass
+def sync_downloader(
+    url_to_filename: List[Tuple[str, str]],
+    timeout: float = 10.0,
+    verify: bool = False,
+    show_progress: bool = False,
+    show_stats: bool = False,
+    max_concurrent: int = 100,
+    on_fail: Optional[Callable[[str, str, Exception], None]] = None,
+) -> SimpleNamespace:
+    return asyncio.run(async_downloader(
+        url_to_filename,
+        timeout,
+        verify,
+        show_progress,
+        show_stats,
+        max_concurrent,
+        on_fail,
+    ))
 
 def load_cve_map(input_xlsx: Path) -> dict:
     """Uses input file to construct a map with cve keys and a list of associated cots
@@ -165,7 +167,7 @@ def load_cve_map(input_xlsx: Path) -> dict:
 
 async def main():
     URL_BASE    = "https://security.access.redhat.com/data/csaf/v2/vex/"
-    cve_map = load_cve_map(Path("./test_files/noa.xlsx"))
+    cve_map = load_cve_map(Path("./test_in/noa.xlsx"))
     out_dir = Path("jsons2")
     out_dir.mkdir(exist_ok=True)
     files = [(f"{URL_BASE}{cve.split('-')[1]}/{cve}.json", str(out_dir / f"{cve}.json")) for cve in cve_map.keys()]

@@ -30,3 +30,7 @@ dist/
 
 # test stuff
 test_files/
+test_in/
+test_out/
+jsons/
+jsons2/
