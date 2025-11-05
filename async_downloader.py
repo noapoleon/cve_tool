@@ -11,20 +11,24 @@ from types import SimpleNamespace
 import time
 
 async def async_downloader(
-        url_to_filename: List[Tuple[str, str]],
-        timeout: float = 10.0,
-        verify: bool = False,
-        show_progress: bool = False,
-        show_stats: bool = False,
-        max_concurrent: int = 100,
-        on_fail: Optional[Callable[[str, str, Exception], None]] = None,
-        # TODO: func_progress: Optional[Callable[something...]] = None,
+    url_to_filename: List[Tuple[str, str]],
+    timeout: float = 10.0,
+    verify: bool = False,
+    show_progress: bool = False,
+    show_stats: bool = False,
+    max_concurrent: int = 100,
+    overwrite: bool = False, # not necessary if on_success implemented
+    on_fail: Optional[Callable[[str, str, Exception], None]] = None,
+    # TODO: on_success: Optional[Callable[[data, str, str, Exception], None]] = None,
+    # TODO: func_progress: Optional[Callable[something...]] = None,
+    # TODO: max_retries: int = 0,
 ) -> SimpleNamespace:
     """Downloads stuff kinda quick
 
     Args:
         on_fail: Optional callback called on download failure.
             Signature should be: on_fail(url: str, filename: str, exc: Exception)
+        overwrite: 
     Returns:
         stats (SimpleNamespace): Downloads stats comprised of:
             success (int): number of successful downloads
@@ -35,7 +39,6 @@ async def async_downloader(
             end (float): end timestamp of the download
             duration (float): duration of the download
     """
-    # TODO: return stats or something
     stats = SimpleNamespace(
         success = 0,
         fails = 0,
@@ -60,6 +63,7 @@ async def async_downloader(
             f"Fails: {stats.fails} | " +
             f"Duration: {round(time.time() - stats.start, 3)}", 
               end="" if done != stats.total else None)
+
 
     async def _fetch_one(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
         async with sem:
@@ -89,7 +93,12 @@ async def async_downloader(
                     # TODO: progress_func(stats)
 
     async with aiohttp.ClientSession() as session:
-        tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename]
+        if overwrite:
+            tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename]
+        else:
+            tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename if not Path(filename).exists()]
+            stats.success = stats.total - len(tasks)
+            # TODO: stats for overwrite = False, already dl files will be marked as success, should be displayed as something else and dl total should reflect that
         stats.start = time.time()
         _show_progress()
             # TODO: progress_func(stats)
