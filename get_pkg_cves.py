@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from argparse import ArgumentParser
 import copy
 import json
 from pathlib import Path
@@ -9,6 +10,7 @@ from tqdm import tqdm
 
 import pandas as pd
 import async_downloader as adl
+
 
 def progress(label: str, current: int, total: int, eraser: str = "\r"):
     bar_length = 30
@@ -205,11 +207,45 @@ def get_pkg_cves(input_file: Path | str, output_dir: Path | str, cols: Dict, ski
 
     # final: map to excel file
 
+
+def parse_args():
+    parser = ArgumentParser(
+        description="Fetch RedHat VEX files from packages listed in an input XLSX file.\n"
+        + "For now only supports rhel8 and rhel10.",
+        allow_abbrev=False,
+    )
+    # arguments
+    parser.add_argument("-i", "--input", type=Path, required=True, help="Input XLSX file containing CVE and COTS columns")
+    parser.add_argument("-o", "--output", type=Path, help="Output XLSX file where processed results will be saved")
+    # TODO: check if rhel argument need, could just extra rhel from cots, depends on future logic of processing modes
+    # parser.add_argument("-r", "--rhel", type=int, nargs='+', help="List of rhel versions to match for with processing modes")
+    parser.add_argument("-j", "--data-dir", type=Path, default="data", help="Directory to cache and read JSONs to and from")
+    parser.add_argument("-u", "--update", action="store_true", help="Redownload and overwrite VEX jsons even if they already exist in JSONS dir")
+    # TODO: implement throttling
+    #parser.add_argument("-t", "--throttle-download", type=int, default=50, help="Max number of concurrent CVE JSONs download requests")
+    parser.add_argument("--disable-stats", action="store_true", help="Don't print download and process statistics")
+    parser.add_argument("-v", "--version", action="version", version="%(prog)s v0.1")
+
+    # Parse and add vars
+    args = parser.parse_args()
+
+    # Error checking
+    if args.output_xlsx and args.input_xlsx == args.output_xlsx:
+        parser.error(f"Input and output files must not be the same file: {args.input_xlsx}")
+    if not args.input_xlsx.exists():
+        parser.error(f"Input file doesn't exist: '{args.input_xlsx}' ")
+    # TODO: add explicit support for (or prevent use of) /dev/stdin, /dev/stdout and others
+
+    return args
+
 if __name__ == "__main__":
-    # TODO: use argparse
-    # TODO: overwrite
-    input_file = Path("./test_in/PAR_List_RPM_simple.xlsx")
-    output_dir = Path("./data/")
-    cols = {"package": "Progiciel", "version": "Version "}
-    skiprows = [1]
-    get_pkg_cves(input_file, output_dir, cols, skiprows)
+    args = parse_args()
+
+    # TODO: make sure every argument has a use
+    # -o, --output
+    # -u, --update
+    # --disable-stats
+
+    cols = {"package": "Progiciel", "version": "Version "} # TODO: argparse -> nargs="+", default=[]
+    skiprows = [1] # TODO: argparse -> nargs="+", default=[]
+    get_pkg_cves(args.input, args.data_dir, cols, skiprows)
