@@ -13,6 +13,7 @@ pandas = "*"
 openpyxl = "*"
 numpy = "*"
 requests = "*"
+tqdm = "*"
 
 [dev-packages]
 

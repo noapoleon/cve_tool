@@ -2,9 +2,10 @@
 
 import copy
 import json
-import sys
 from pathlib import Path
+import time
 from typing import Dict, List, Optional
+from tqdm import tqdm
 
 import pandas as pd
 import async_downloader as adl
@@ -63,7 +64,11 @@ def make_cve_pkg_map(pkg_lst: List[List], input_dir: Path | str):
     input_dir = Path(input_dir)
     cve_pkg_map = {}
 
-    for i, pkg in enumerate(pkg_lst, start=1):
+    for i, pkg in tqdm(
+        enumerate(pkg_lst, start=1),
+        desc="Generating CVE package map",
+        total=len(pkg_lst)
+    ):
         try:
             # 1. open cve_list.json file
             filename = input_dir/f"{pkg[0]}.json" # TODO: Make sure pkg here is just the package name
@@ -84,11 +89,13 @@ def make_cve_pkg_map(pkg_lst: List[List], input_dir: Path | str):
 
         except Exception as e: # TODO: don't catch everything
             print(f"Error: Failed to add {pkg} cves to map -> {e}")
-        progress("Generating CVE package map: ", i, len(pkg_lst))
+        # progress("Generating CVE package map: ", i, len(pkg_lst))
+
     return cve_pkg_map
 
 
 def get_cve_vex_url(cve: str, url_base: Optional[str] = None) -> str:
+    cve = cve.lower()
     if not url_base:
         url_base = "https://security.access.redhat.com/data/csaf/v2/vex/"
     return f"{url_base}{cve.split('-')[1]}/{cve.lower()}.json"
@@ -108,11 +115,64 @@ def dl_cve_vex(cve_pkg_map: Dict[str,List[str]], output_dir: Path|str, max_retri
     retries = 1
     while stats.fails and retries <= max_retries:
         print(f"Retrying failed items... #{retries}")
-        print(stats.failed_items)
+        [item.pop() for item in stats.failed_items]
         failed_items = copy.deepcopy(stats.failed_items)
-        [item.pop() for item in failed_items]
         stats = adl.sync_downloader(failed_items, show_progress=True, show_stats=True)
         retries += 1
+    if stats.fails:
+        print(f"Warning: Max retries reached, failed to download {stats.fails} items")
+        for cve in stats.failed_items:
+            print(f"  {cve[0]} to {cve[1]}: {cve[2]}")
+
+
+def get_vex_matched_pids(data: dict, match: List[str]) -> List[str] | None:
+    match_set = set(match)
+    normed = []
+
+    def match_normalize_pid(pid: str):
+        parts = pid.split(":", 2)
+        if len(parts) < 3:
+            return None
+        _, ne, vra = parts
+        norm = f"{ne.rsplit('-', 1)[0]}-{vra.rsplit('.', 1)[0]}"
+        return norm if norm in match_set else None
+
+    product_status = data.get("vulnerabilities", [])[0].get("product_status") #unsafe
+    for pids in product_status.values():
+        for pid in pids:
+            norm = match_normalize_pid(pid)
+            if norm is not None:
+                normed.append(norm)
+    return normed
+
+
+def trim_map_vex(
+        cve_pkg_map: Dict[str,List[str]],
+        input_dir: Path|str
+) -> Dict[str,List[str]]:
+    input_dir = Path(input_dir)
+    filtered = {}
+
+    for cve, pkgs in tqdm(
+        cve_pkg_map.items(),
+        total=len(cve_pkg_map),
+        desc="Trimming CVE Package map"
+    ):
+        # TODO would async help? or multithreading
+        try:
+            filename = f"{cve}.json"
+            with open(input_dir/filename, "r", encoding="utf8") as f:
+                data = json.load(f)
+                pids = get_vex_matched_pids(data, pkgs)
+                if not data or not pids:
+                    # TODO: trimming stats
+                    continue
+                filtered[cve] = pids
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError) as e:
+            print(f"Failed reading {filename}: {e}")
+    print(f"[DONE] Trimmed: {len(cve_pkg_map)-len(filtered)}/{len(cve_pkg_map)} | CVEs left: {len(filtered)}/{len(cve_pkg_map)}")
+    return filtered
+
 
 
 def get_pkg_cves(input_file: Path | str, output_dir: Path | str, cols: Dict, skiprows: Optional[List[int] | int] = None):
@@ -123,16 +183,18 @@ def get_pkg_cves(input_file: Path | str, output_dir: Path | str, cols: Dict, ski
 
     # get csaf data for rough cve list and write map
     dl_pkg_csaf(pkg_lst, output_dir/"pkg_csaf")
+    start = time.time()
     cve_pkg_map = make_cve_pkg_map(pkg_lst, output_dir/"pkg_csaf")
+    end = time.time()
+    print(f"[DONE] CVE map generation took {round(end - start, 3)} seconds")
     with open(output_dir/"cve_pkg_map_untrimmed.json", "w", encoding="utf8") as f:
         json.dump(cve_pkg_map, f, indent=2)
 
     # get vex data and trim cve list
     dl_cve_vex(cve_pkg_map, output_dir/"cve_vex")
-    # trim_cves(cve_pkg_map, output_dir/"cve_vex")
-    # with open(output_dir/"cve_pkg_map.json", "w", encoding="utf8") as f:
-    #     json.dump(cve_pkg_map, f, indent=2)
-
+    cve_pkg_map = trim_map_vex(cve_pkg_map, output_dir/"cve_vex")
+    with open(output_dir/"cve_pkg_map.json", "w", encoding="utf8") as f:
+        json.dump(cve_pkg_map, f, indent=2)
 
     # dl_pkg_vex(pkg_lst, output_dir/"cve_vex") # TODO: use version field and don't forget el version
     # TODO: use vex to trim cves that don't have specific version of pkg??

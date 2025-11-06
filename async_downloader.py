@@ -108,7 +108,7 @@ async def async_downloader(
     if show_stats:
         print(f"[DONE] Success: {stats.success}/{stats.total} | " +
             f"Fails: {stats.fails}/{stats.total} | " +
-            f"Duration: {stats.duration}")
+            f"Duration: {round(stats.duration, 3)}")
     return stats
 
 # TODO: Sync wrapper so you can use it without knowing async stuff
@@ -121,6 +121,7 @@ def sync_downloader(
     show_progress: bool = False,
     show_stats: bool = False,
     max_concurrent: int = 100,
+    overwrite: bool = False, # not necessary if on_success implemented
     on_fail: Optional[Callable[[str, str, Exception], None]] = None,
 ) -> SimpleNamespace:
     return asyncio.run(async_downloader(
@@ -130,6 +131,7 @@ def sync_downloader(
         show_progress,
         show_stats,
         max_concurrent,
+        overwrite,
         on_fail,
     ))
 
