@@ -58,9 +58,9 @@ async def async_downloader(
         bar_length = 30
         filled = int((done / stats.total) * bar_length)
         bar = "#" * filled + "-" * (bar_length - filled)
-        print(f"{eraser}[{bar}] {done}/{stats.total} | " +
-            f"Success: {stats.success} | " +
-            f"Fails: {stats.fails} | " +
+        print(f"{eraser}[{bar}] {done}/{stats.total} | ",
+            f"Success: {stats.success} | ",
+            f"Fails: {stats.fails} | ",
             f"Duration: {round(time.time() - stats.start, 3)}", 
               end="" if done != stats.total else None)
 
