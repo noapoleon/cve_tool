@@ -9,6 +9,7 @@ import aiohttp
 import types
 from types import SimpleNamespace
 import time
+from tqdm import tqdm
 
 async def async_downloader(
     url_to_filename: List[Tuple[str, str]],
@@ -42,7 +43,7 @@ async def async_downloader(
     stats = SimpleNamespace(
         success = 0,
         fails = 0,
-        total = len(url_to_filename),
+        total = 0,
         failed_items = [],
         start = 0,
         end = 0,
@@ -51,24 +52,15 @@ async def async_downloader(
     lock = asyncio.Lock()
     sem = asyncio.Semaphore(max_concurrent)
 
-    def _show_progress(eraser: str = "\r"):
-        if not show_progress:
-            return
-        done = stats.success + stats.fails
-        bar_length = 30
-        filled = int((done / stats.total) * bar_length)
-        bar = "#" * filled + "-" * (bar_length - filled)
-        print(f"{eraser}[{bar}] {done}/{stats.total} | ",
-            f"Success: {stats.success} | ",
-            f"Fails: {stats.fails} | ",
-            f"Duration: {round(time.time() - stats.start, 3)}", 
-              end="" if done != stats.total else None)
-
-
-    async def _fetch_one(session: aiohttp.ClientSession, url: str, filename: str) -> Optional[str]:
+    async def _fetch_one(
+            session: aiohttp.ClientSession,
+            url: str,
+            filename: str,
+            pbar: Optional[tqdm] = None
+    ) -> Optional[str]:
         async with sem:
             try:
-                async with session.get(url, timeout=timeout, ssl=verify) as response:
+                async with session.get(url, timeout=timeout, ssl=verify, ) as response:
                     response.raise_for_status()
                     # TODO: maybe implement on_success callback
                     # TODO: support multiple default modes:
@@ -88,21 +80,27 @@ async def async_downloader(
                 if on_fail:
                     on_fail(url, filename, exc)
             finally:
-                async with lock:
-                    _show_progress()
-                    # TODO: progress_func(stats)
+                if pbar:
+                    pbar.update(1)
 
     async with aiohttp.ClientSession() as session:
-        if overwrite:
-            tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename]
-        else:
-            tasks = [_fetch_one(session, url, filename) for url, filename in url_to_filename if not Path(filename).exists()]
-            stats.success = stats.total - len(tasks)
-            # TODO: stats for overwrite = False, already dl files will be marked as success, should be displayed as something else and dl total should reflect that
+        urls = [
+            (url, filename)
+            for url, filename in url_to_filename
+            if overwrite or not Path(filename).exists()
+        ]
+        stats.total = len(urls)
         stats.start = time.time()
-        _show_progress()
-            # TODO: progress_func(stats)
-        await asyncio.gather(*tasks)
+        if show_progress:
+            with tqdm(total=stats.total, desc="Downloading", unit="file") as pbar:
+                tasks = [
+                    _fetch_one(session, url, filename, pbar)
+                    for url, filename in urls
+                ]
+                await asyncio.gather(*tasks)
+        else:
+            tasks = [_fetch_one(session, url, filename) for url, filename in urls]
+            await asyncio.gather(*tasks)
         stats.end = time.time()
         stats.duration = stats.end - stats.start
     if show_stats:

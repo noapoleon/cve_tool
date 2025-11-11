@@ -1,12 +1,8 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-def test():
-    try:
-        print("try1")
-    except:
-        print("except")
-    finally:
-        print("finally")
-print(test())
+a = {i for i in range(1, 100)}
+b = {i for i in range(80, 300)}
 
+c = a.intersection(b)
+print(c)
