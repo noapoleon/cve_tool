@@ -120,12 +120,14 @@ def get_index(data_dir: Path) -> dict|None:
             f.write(r.text.strip())
         # Read archive name
         index = {}
+        count = 0
         with open(filename, "r", encoding="utf8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     year, _, cve = line.removesuffix(".json").rpartition("/")
                     index.setdefault(year, []).append(cve)
+        print(f"count -> {count}")
         return index
     except requests.exceptions.HTTPError as e:
         print(f"[ERROR] Server returned error: {e.response.status_code}")
@@ -141,18 +143,18 @@ def get_index(data_dir: Path) -> dict|None:
 def dl_missing_cves(data_dir: Path|str, vex_index: dict):
     url_base = "https://security.access.redhat.com/data/csaf/v2/vex"
     missing_vex = [
-        (f"{url_base}/{year}/{cve}.json", Path(data_dir/year/f"{cve}.json"))
+        (f"{url_base}/{year}/{cve}.json", str(data_dir/year/f"{cve}.json"))
         for year, cves in vex_index.items()
         for cve in cves
         if not Path(data_dir/year/f"{cve}.json").exists()
     ]
     if missing_vex:
-        print(f"[INFO] Downloading missing VEX files (present in index but not in archive)")
+        print(f"[INFO] Downloading {len(missing_vex)} missing VEX files (not in archive)")
         stats = adl.sync_downloader(missing_vex, show_progress=True, show_stats=True)
         if stats.fails:
             print(f"[WARN] Failed to download {stats.fails} VEX files from index:")
             for fail in stats.failed_items:
-                print(f"  - {fails[0]} to {fails[1]}")
+                print(f"  - {fail[0]} to {fail[1]}")
     print(f"[INFO] Archive contains {sum(len(cves) for cves in vex_index.values())} CVE VEX files")
 
 def update_archive(data_dir: Path|str, skip_download: bool = False, skip_extract: bool = False) -> bool:
