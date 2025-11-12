@@ -1,4 +1,5 @@
 import json
+import sys
 import requests
 from tqdm import tqdm
 from pathlib import Path
@@ -6,8 +7,9 @@ import tarfile
 import zstandard as zstd
 import time
 import threading
-import sys
 import async_downloader as adl
+from utils import json_utils
+from typing import List, Set, Optional, Tuple
 
 
 def get_archive_name(data_dir: Path|str) -> str:
@@ -120,14 +122,12 @@ def get_index(data_dir: Path) -> dict|None:
             f.write(r.text.strip())
         # Read archive name
         index = {}
-        count = 0
         with open(filename, "r", encoding="utf8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     year, _, cve = line.removesuffix(".json").rpartition("/")
                     index.setdefault(year, []).append(cve)
-        print(f"count -> {count}")
         return index
     except requests.exceptions.HTTPError as e:
         print(f"[ERROR] Server returned error: {e.response.status_code}")
@@ -142,12 +142,20 @@ def get_index(data_dir: Path) -> dict|None:
 
 def dl_missing_cves(data_dir: Path|str, vex_index: dict):
     url_base = "https://security.access.redhat.com/data/csaf/v2/vex"
-    missing_vex = [
-        (f"{url_base}/{year}/{cve}.json", str(data_dir/year/f"{cve}.json"))
-        for year, cves in vex_index.items()
-        for cve in cves
-        if not Path(data_dir/year/f"{cve}.json").exists()
-    ]
+    total_vex = sum(len(cves) for cves in vex_index.values())
+    missing_vex = []
+    with tqdm(total=total_vex, desc="Checking missing VEX") as pbar:
+        for year, cves in vex_index.items():
+            for cve in cves:
+                if not Path(data_dir/year/f"{cve}.json").exists():
+                    missing_vex.append(f"{url_base}/{year}/{cve}.json", str(data_dir/year/f"{cve}.json"))
+                pbar.update(1)
+    # missing_vex = [
+    #     (f"{url_base}/{year}/{cve}.json", str(data_dir/year/f"{cve}.json"))
+    #     for year, cves in tqdm(vex_index.items(), total=total_vex, desc="Checking missing VEX")
+    #     for cve in cves
+    #     if not Path(data_dir/year/f"{cve}.json").exists()
+    # ]
     if missing_vex:
         print(f"[INFO] Downloading {len(missing_vex)} missing VEX files (not in archive)")
         stats = adl.sync_downloader(missing_vex, show_progress=True, show_stats=True)
@@ -155,16 +163,146 @@ def dl_missing_cves(data_dir: Path|str, vex_index: dict):
             print(f"[WARN] Failed to download {stats.fails} VEX files from index:")
             for fail in stats.failed_items:
                 print(f"  - {fail[0]} to {fail[1]}")
+    # TODO: retry missing (retries: int = 10)
     print(f"[INFO] Archive contains {sum(len(cves) for cves in vex_index.values())} CVE VEX files")
 
-def update_archive(data_dir: Path|str, skip_download: bool = False, skip_extract: bool = False) -> bool:
+
+def get_norm_index(data_dir: Path|str) -> dict:
+    norm_index = Path(data_dir)/"norm_index.json"
+    if norm_index.exists():
+        try:
+            return json.loads(norm_index.read_text())
+        except json.JSONDecodeError:
+            pass
+    norm_index.write_text("{}")
+    return {}
+
+
+def get_normed_vex(vex_path: Path|str, rhel_vers: Set[str]) -> dict|None:
+    data = json_utils.safe_load(vex_path)
+    if data is None:
+        return None
+
+    # Extract product_status dict
+    try:
+        product_status = data.get("vulnerabilities", [])[0].get("product_status")
+    except (AttributeError, IndexError, TypeError):
+        # debug here
+        return None
+
+    rhel_fixes = {rhel: (f"red_hat_enterprise_linux_{rhel}", f"el{rhel}") for rhel in rhel_vers}
+
+    def _normalize_pid(pid: str, rhel: str) -> str|None:
+        try:
+            parts = pid.split(":")
+            if len(parts) == 2:
+                el, name = parts
+                if el == rhel_fixes[rhel][0]:
+                    return f"{name.rpartition('/')[2]}:{rhel}"
+            elif len(parts) == 3:
+                _, ne, vra = parts
+                if rhel_fixes[rhel][1] in vra:
+                    return f"{ne.rpartition('-')[0]}:{rhel}"
+            else:
+                return None
+        except Exception:
+            return None
+
+    new_product_status = {}
+    for status, pids in product_status.items():
+        new_product_status[status] = set()
+        for pid in pids:
+            for rhel in rhel_vers:
+                new_pid = _normalize_pid(pid, rhel)
+                if new_pid:
+                    new_product_status[status].add(new_pid)
+                    break
+    return {
+        "rhel_versions": rhel_vers,
+        "product_status": new_product_status
+    }
+
+
+def norm_archive_rhel(
+        data_dir: Path|str,
+        vex_index: dict,
+        rhel_vers: Set[str],
+):
+    """Creates norm files for each Vex file, only keeps name and major rhel version"""
+    data_dir = Path(data_dir)
+    vex_flat = {(year, cve) for year, cves in vex_index.items() for cve in cves}
+
+    # get norm index
+    if not Path(data_dir/"norm_index.json").exists():
+        norm_index = {}
+    else:
+        norm_index = json_utils.safe_load(data_dir/"norm_index.json")
+        if norm_index is None:
+            print("[ERROR] Failed to get norm index. Cannot proceed.")
+            return
+    for year in vex_index:
+        norm_index.setdefault(year, {})
+
+    # remove
+    def _union_norm_data(old_norm_data: dict, new_norm_data: dict) -> dict:
+        old_vers = set(old_norm_data.get("rhel_versions", set()))
+        new_norm_data["rhel_versions"] = old_vers | new_norm_data["rhel_versions"]
+        for status, old_set in old_norm_data.get("product_status", {}).items():
+            if status in new_norm_data["product_status"]:
+                new_norm_data["product_status"][status] = new_norm_data["product_status"][status] | set(old_set)
+            else:
+                new_norm_data["product_status"][status] = set(old_set)
+        return new_norm_data
+
+    fails = []
+    for year, cve in tqdm(vex_flat, desc=f"Updating archive norms for rhel versions {', '.join(rhel_vers)}"):
+        norm_path = data_dir/year/f"{cve}.norm.json"
+        old_norm_data = json_utils.safe_load(norm_path)
+        if old_norm_data is None:
+            old_norm_data = {}
+
+        # norm vex file
+        new_norm_data = get_normed_vex(data_dir/year/f"{cve}.json", rhel_vers)
+        if new_norm_data is None:
+            fails.append(cve)
+            continue
+        _union_norm_data(old_norm_data, new_norm_data)
+        new_norm_data = json_utils.normalize(new_norm_data)
+
+        # write norm file for cve
+        if not json_utils.safe_dump(new_norm_data, norm_path):
+            fails.append(cve)
+            continue
+
+        old_vers = set(norm_index[year].get(cve, []))
+        norm_index[year][cve] = list(old_vers | rhel_vers)
+
+    if fails:
+        # TODO: log file
+        print(f"[WARN] Failed to norm {len(fails)} vex files for rhel {', '.join(rhel_vers)}")
+        for fail in fails:
+            print(f"  - {fail}")
+
+    # save changes to norm_index
+    if not json_utils.safe_dump(norm_index, data_dir/"norm_index.json"):
+        print(f"[ERROR] Failed to update norm index for rhel {', '.join(rhel_vers)}")
+
+
+
+def update_archive(
+        data_dir: Path|str,
+        skip_download: bool = False,
+        skip_extract: bool = False,
+        norm_rhel_vers: List[str]|Set[str]|None = None,
+) -> bool:
     data_dir = Path(data_dir)
 
     start = time.time()
     up_to_date = is_latest_archive(data_dir)
     if up_to_date:
-        print("[INFO] Archive is up-to-date")
+        print("[INFO] Archive file is up-to-date")
     archive_name = get_archive_name(data_dir)
+    archive_dir = archive_name.removesuffix(".tar.zst")
     if not skip_download:
         if not up_to_date:
             if not dl_archive(data_dir, archive_name):
@@ -175,9 +313,12 @@ def update_archive(data_dir: Path|str, skip_download: bool = False, skip_extract
                 return False
     vex_index = get_index(data_dir)
     if vex_index:
-        dl_missing_cves(data_dir/archive_name[:-len(".tar.zst")], vex_index)
+        dl_missing_cves(data_dir/archive_dir, vex_index)
+        if norm_rhel_vers is not None:
+            norm_rhel_vers = set(norm_rhel_vers)
+            norm_archive_rhel(data_dir/archive_dir, vex_index, norm_rhel_vers)
     else:
-        print("[WARN] Failed to get index. Cannot check completeness")
+        print("[WARN] Failed to get index. Cannot check completeness or update normed files")
     print(f"[DONE] {round(time.time() - start, 3)} seconds")
     # TODO: add deletions
     # remove_deletions(data_dir)
@@ -185,7 +326,7 @@ def update_archive(data_dir: Path|str, skip_download: bool = False, skip_extract
 
 if __name__ == "__main__":
     data_dir = Path("./data_test")
-    if not update_archive(data_dir):
+    if not update_archive(data_dir, norm_rhel_vers=["8", "10"]):
         print("Archive update failed.")
     # if not update_archive(data_dir, skip_download=True, skip_extract=True):
     # if not update_archive(data_dir, skip_download=True,):
