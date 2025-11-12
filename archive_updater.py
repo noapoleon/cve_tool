@@ -230,7 +230,7 @@ def norm_archive_rhel(
 ):
     """Creates norm files for each Vex file, only keeps name and major rhel version"""
     data_dir = Path(data_dir)
-    vex_flat = {(year, cve) for year, cves in vex_index.items() for cve in cves}
+    vex_flat = {(year, cve, rhel_vers) for year, cves in vex_index.items() for cve in cves}
 
     # get norm index
     if not Path(data_dir/"norm_index.json").exists():
@@ -254,9 +254,15 @@ def norm_archive_rhel(
                 new_norm_data["product_status"][status] = set(old_set)
         return new_norm_data
 
+    # TODO: skip if already done
+    # skip if already done
+    if not norm_path.exists() or norm_index
+
     fails = []
     for year, cve in tqdm(vex_flat, desc=f"Updating archive norms for rhel versions {', '.join(rhel_vers)}"):
         norm_path = data_dir/year/f"{cve}.norm.json"
+
+
         old_norm_data = json_utils.safe_load(norm_path)
         if old_norm_data is None:
             old_norm_data = {}
@@ -317,6 +323,7 @@ def update_archive(
         if norm_rhel_vers is not None:
             norm_rhel_vers = set(norm_rhel_vers)
             norm_archive_rhel(data_dir/archive_dir, vex_index, norm_rhel_vers)
+            # TODO: only renorm what needs to be renormed, check norm_index
     else:
         print("[WARN] Failed to get index. Cannot check completeness or update normed files")
     print(f"[DONE] {round(time.time() - start, 3)} seconds")
