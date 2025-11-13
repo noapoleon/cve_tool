@@ -68,7 +68,10 @@ def get_pkg_cves(
                     inter = pkgs & product_status_set
                     if inter:
                         cve_pkg_maps[rhel][cve] = {pkg.rpartition(":")[0] for pkg in inter}
-                        [pkg_cve_maps[rhel].get(pkg.rpartition(":")[0], set()).add(cve) for pkg in inter]
+                        for pkg in inter:
+                            pkg_cve_maps[rhel].setdefault(pkg.rpartition(":")[0], set()).add(cve)
+                            # print(f"truc -> {pkg_cve_maps[rhel].get(pkg.rpartition(':')[0], set()}")
+                        # [pkg_cve_maps[rhel].get(pkg.rpartition(":")[0], set()).add(cve) for pkg in inter]
 
     # write cve_pkg_maps and pkg_cve_map jsons
     filename = f"{str(output).removesuffix('.xlsx')}.maps.json"
@@ -95,17 +98,22 @@ def get_pkg_cves(
                         row.append(0)
                 rows.append(row)
             pbar.update(1)
+    # print(json.dumps(json_utils.normalize(pkg_cve_maps), indent=2))
     start = time.time()
     print("Writing output excel file...")
     df_main = pd.DataFrame(rows, columns=headers) # protect
     df_main.sort_values(by="CVE", inplace=True)
     # stats
-    headers = ["Package", "CVE Count"]
+    headers = ["Product"]
+    headers += [f"CVE Count RHEL {rhel}" for rhel in pkg_cve_maps]
     rows = []
     for pkg in pkg_set:
-        rows.append([pkg, sum(len(pkg_cve_maps[rhel].get(pkg, set())) for rhel in pkg_cve_maps)])
+        row = [pkg]
+        for rhel in pkg_cve_maps:
+            row.append(len(pkg_cve_maps[rhel].get(pkg, set())))
+        rows.append(row)
     df_stats = pd.DataFrame(rows, columns=headers)
-    df_stats.sort_values(by="Package", inplace=True)
+    df_stats.sort_values(by="Product", inplace=True)
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_main.to_excel(writer, index=False, sheet_name="main") # protect
         df_stats.to_excel(writer, index=False, sheet_name="stats") # protect

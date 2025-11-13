@@ -23,7 +23,7 @@ def is_latest_archive(data_dir: Path|str) -> bool:
         with open(latest_file, "w", encoding="utf8") as f:
             f.write(r.text.strip())
         # Read archive name
-        archive_name = get_archive_name(data_dir)
+        archive_name = archive_utils.get_archive_name(data_dir)
         # Check if archive exists locally
         if Path(data_dir/archive_name).exists():
             return True
@@ -311,7 +311,7 @@ def update_archive(
     up_to_date = is_latest_archive(data_dir)
     if up_to_date:
         print("[INFO] Archive file is up-to-date")
-    archive_name = get_archive_name(data_dir)
+    archive_name = archive_utils.get_archive_name(data_dir)
     archive_dir = archive_name.removesuffix(".tar.zst")
     if not skip_download:
         if not up_to_date:
