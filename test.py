@@ -2,14 +2,15 @@ import json
 from typing import List, Set, Optional
 from utils import json_utils
 
-# rhel8 = json_utils.safe_load("./test_in/PAR_List_RPM_simple.rhel8.json")
-# rhel10 = json_utils.safe_load("./test_in/PAR_List_RPM_simple.rhel10.json")
+d = {}
 
-rhel8 = json_utils.safe_load("./test_in/mine.rhel8.json")
-rhel10 = json_utils.safe_load("./test_in/mine.rhel10.json")
-if rhel8 is None or rhel10 is None:
-    print("error no data")
-else:
-    count = sum(len(prods) for prods in rhel8.values())
-    count += sum(len(prods) for prods in rhel10.values())
-    print(count)
+d.setdefault("vendor_fix", set()).update({"1", "2", "3"})
+d.setdefault("workaround", set()).update({"4", "5", "3"})
+d.setdefault("none_available", set()).update({"4", "5", "3"})
+
+if d.get("workaround"):
+    d["workaround"] -= d.get("vendor_fix", set())
+    d["workaround"] -= d.get("no_fix_planned", set())
+    d["workaround"] -= d.get("none_available", set())
+
+print(d)

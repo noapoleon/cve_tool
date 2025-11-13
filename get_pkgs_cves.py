@@ -21,7 +21,8 @@ def get_pkg_cves(
         data_dir: Path | str,
         rhel_versions: List[int]|Set[int]|Set[str],
         skiprows: Optional[int] = None,
-        exclude: set[str] | None = {"known_not_affected"},
+        exclude: set[str] | None = None,
+        # exclude: set[str] | None = {"known_not_affected"},
 ):
     total_start = time.time()
     input = Path(input)
@@ -50,28 +51,35 @@ def get_pkg_cves(
     fails = []
     cve_pkg_maps = {rhel: {} for rhel in rhel_versions}
     pkg_cve_maps = {rhel: {} for rhel in rhel_versions}
+    no_rem = {"known_not_affected", "under_investigation"}
     with tqdm(total=sum(len(cves) for cves in norm_index.values()), desc="Searching for cve matches") as pbar:
         for year, cves in norm_index.items():
             for cve in cves:
                 pbar.update(1)
-                # vex_file = json_utils.safe_load(data_dir/archive_name/year/f"{cve}.json") # for more precise data
 
-                # make set from product status entries
+                # make sets from product_status and remediations entries
                 norm_filepath = data_dir/archive_name/year/f"{cve}.norm.json"
-                # TODO: change exclude here for different results
-                product_status_set = archive_utils.get_product_status_set(norm_filepath)
-                if product_status_set is None:
+                product_status_sets, remediations_sets = archive_utils.get_vex_sets(norm_filepath)
+                if product_status_sets is None or remediations_sets is None:
                     fails.append(cve)
                     continue
 
                 for rhel, pkgs in pkg_sets.items():
-                    inter = pkgs & product_status_set
-                    if inter:
-                        cve_pkg_maps[rhel][cve] = {pkg.rpartition(":")[0] for pkg in inter}
-                        for pkg in inter:
-                            pkg_cve_maps[rhel].setdefault(pkg.rpartition(":")[0], set()).add(cve)
-                            # print(f"truc -> {pkg_cve_maps[rhel].get(pkg.rpartition(':')[0], set()}")
-                        # [pkg_cve_maps[rhel].get(pkg.rpartition(":")[0], set()).add(cve) for pkg in inter]
+                    for status in product_status_sets:
+                        if status in no_rem:
+                            inter = pkgs & product_status_sets[status] # sus
+                            if inter:
+                                # TODO: since product_status_sets structure changed, also change xlsx writing
+                                cve_pkg_maps[rhel].setdefault(cve, {}).setdefault(status, set()).update(inter)
+                                for pkg in inter:
+                                    pkg_cve_maps[rhel].setdefault(pkg.rpartition(":")[0], set()).add(cve)
+                        else:
+                            for category in remediations_sets:
+                                inter = pkgs & remediations_sets[category] # sus
+                                if inter:
+                                    cve_pkg_maps[rhel].setdefault(cve, {}).setdefault(category, set()).update(inter)
+                                    for pkg in inter:
+                                        pkg_cve_maps[rhel].setdefault(pkg.rpartition(":")[0], set()).add(cve)
 
     # write cve_pkg_maps and pkg_cve_map jsons
     filename = f"{str(output).removesuffix('.xlsx')}.maps.json"
@@ -88,14 +96,23 @@ def get_pkg_cves(
     unique_cves = set().union(*[rhel_map.keys() for rhel_map in cve_pkg_maps.values()])
     with tqdm(total=len(unique_cves), desc="Processing output file") as pbar:
         for cve in unique_cves:
-            pkgs = {pkg for rhel in cve_pkg_maps for pkg in cve_pkg_maps[rhel].get(cve, {})}
+            pkgs = {
+                pkg.rpartition(":")[0]
+                for rhel in cve_pkg_maps
+                for statrem in cve_pkg_maps[rhel].get(cve, {}).values()
+                for pkg in statrem
+            }
             for pkg in pkgs:
                 row = [cve, pkg]
                 for rhel in cve_pkg_maps:
-                    if pkg in cve_pkg_maps[rhel].get(cve, set()): #won't work with 
-                        row.append(1)
-                    else:
-                        row.append(0)
+                    found = False
+                    for statrem, statrem_pkgs in cve_pkg_maps[rhel].get(cve, {}).items():
+                        if f"{pkg}:{rhel}" in statrem_pkgs:
+                            row.append(statrem)
+                            found = True
+                            break #bug same names 
+                    if not found:
+                        row.append("not_in_vuln") # careful, if known_not_affected skipped will not work
                 rows.append(row)
             pbar.update(1)
     # print(json.dumps(json_utils.normalize(pkg_cve_maps), indent=2))

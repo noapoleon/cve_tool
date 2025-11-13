@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Set
+from typing import Set, Dict, Tuple
 from .json_utils import safe_load
 
 def get_archive_name(
@@ -39,3 +39,29 @@ def get_product_status_set(
         if status not in exclude
         for product in products
     }
+
+def get_vex_sets(
+        norm_filepath: Path|str,
+        exclude: set[str] | None = None
+) -> Tuple[Dict, Dict]|Tuple[None,None]:
+    # load norm file
+    norm_data = safe_load(norm_filepath)
+    if norm_data is None:
+        return None, None
+
+    exclude = exclude or set()
+
+    product_status = {
+        status: set(products)
+        for status, products in norm_data.get("product_status", {}).items()
+        if status not in exclude
+    }
+    remediations = {
+        category: set(products)
+        for category, products in norm_data.get("remediations", {}).items()
+    }
+    if remediations.get("workaround"):
+        remediations["workaround"] -= remediations.get("vendor_fix", set())
+        remediations["workaround"] -= remediations.get("no_fix_planned", set())
+        remediations["workaround"] -= remediations.get("none_available", set())
+    return product_status, remediations
