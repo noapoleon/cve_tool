@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 from argparse import ArgumentParser, Namespace
 import copy
 import json
@@ -8,9 +9,9 @@ import time
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Set
 from tqdm import tqdm
-
 import pandas as pd
 import async_downloader as adl
+from utils import json_utils, xlsx_utils, archive_utils
 
 
 def map_to_json(map: Dict, filename: Path|str, overwrite: bool = False):
@@ -36,22 +37,6 @@ def dl_retry(stats: SimpleNamespace, max_retries: int):
     return stats
 
 
-def xlsx_to_dict(input_xlsx: Path | str, cols: list, skiprows: Optional[list | int] = None) -> list:
-    input_xlsx = Path(input_xlsx)
-    # read input
-    df = pd.read_excel(
-        input_xlsx,
-        usecols=cols,
-        skiprows=skiprows,
-        engine="openpyxl",
-    )
-
-    # # Stop if either column not in file
-    # for col in cols:
-    #     if col not in df.columns:
-    #         raise ValueError(f"Column '{col}' not present in input file '{input_xlsx}'")
-
-    return df.to_dict(orient='records')
 
 
 def dl_pkg_csaf(
@@ -276,41 +261,49 @@ def trim_map_vex(
     return filtered
 
 
-
 def get_pkg_cves(
-        input_file: Path | str,
-        output_dir: Path | str,
-        args: Namespace,
-        cols: Dict,
-        skiprows: Optional[List[int] | int] = None,
+        input: Path | str,
+        column: str,
+        output: Path | str,
+        data_dir: Path | str,
+        rhel_versions: List[int]|Set[int]|Set[str],
+        skiprows: Optional[int] = None,
 ):
-    # generate list
-    pkg_lst = xlsx_to_dict(input_file, list(cols.values()), skiprows)
-    pkg_lst = [list(pkg.values()) for pkg in pkg_lst]
-    output_dir = Path(output_dir)
+    data_dir = Path(data_dir)
+    rhel_versions = {str(rhel) for rhel in rhel_versions}
 
-    # get csaf data for rough cve list and write map
-    dl_pkg_csaf(pkg_lst, output_dir/"pkg_csaf", args)
-    start = time.time()
-    cve_pkg_map = make_cve_pkg_map(pkg_lst, output_dir/"pkg_csaf")
-    end = time.time()
-    print(f"[DONE] CVE map generation took {round(end - start, 3)} seconds")
-    map_to_json(cve_pkg_map, output_dir/"cve_pkg_map_untrimmed.json", args.overwrite)
+    # fetch list
+    pkg_set = xlsx_utils.xlsx_to_dict(input, [column], skiprows, print_errors=True)
+    if pkg_set is None:
+        return
+    pkg_set = {pkg[column] for pkg in pkg_set}
 
-    # get vex data and trim cve list
-    fails = dl_cve_vex(cve_pkg_map, output_dir/"cve_vex", args)
-    # remove failed items from package map
-    for fail in fails:
-        del cve_pkg_map[fail]
+    # get norm info
+    archive_name = archive_utils.get_archive_name(data_dir, remove_suffix=True, print_errors=True)
+    if not archive_name:
+        return
+    norm_index = json_utils.safe_load(data_dir/archive_name/"norm_index.json", print_errors=True)
+    if norm_index is None:
+        return
 
-    # trim cve list
-    for ver in args.rhel_versions:
-        map_filename = output_dir/f"cve_pkg_map_rhel{ver}.json"
-        if not map_filename.exists() or args.overwrite:
-            cve_pkg_map_rhel = trim_map_vex(cve_pkg_map, output_dir/"cve_vex", str(ver))
-            map_to_json(cve_pkg_map_rhel, map_filename, args.overwrite)
+    # build name:rhel sets for each rhel version
+    pkg_sets = {rhel: {f"{pkg}:{rhel}" for pkg in pkg_set} for rhel in rhel_versions}
 
-    # final: map to excel file
+    # check normed files for matches
+    fails = []
+    cve_pkg_map = {rhel: {} for rhel in rhel_versions}
+    for year, cves in norm_index.items():
+        for cve in cves:
+            # vex_file = json_utils.safe_load(data_dir/archive_name/year/f"{cve}.json") # for more precise data
+
+            # make set from product status entries
+            product_status_set = archive_utils.get_product_status_set(data_)
+            if product_status_set is None:
+                fails.append(cve)
+
+            # for rhel, pkgs in pkg_sets.items():
+            #     intersect rhel with product_
+
 
 
 def parse_args():
@@ -321,17 +314,17 @@ def parse_args():
     )
     # arguments
     parser.add_argument("-i", "--input", type=Path, required=True, help="Input XLSX file containing CVE and COTS columns")
-    parser.add_argument("-o", "--output", type=Path, help="Output XLSX file where processed results will be saved")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Output XLSX file where processed results will be saved")
     # parser.add_argument("--logfile", type=Path, help="Output XLSX file where processed results will be saved")
-    # TODO: since now rhel version is given as arg dont extract from input file,
-    # also Versions column useless now because too precise for good matching with loose vex data
-    parser.add_argument("-r", "--rhel-versions", type=int, nargs="+", required=True, help="List of rhel versions to match cve matching")
-    parser.add_argument("-j", "--data-dir", type=Path, default="data", help="Directory to cache and read JSONs to and from")
-    parser.add_argument("--skip-download", action="store_true", help="Redownload and overwrite CSAF and VEX jsons even if they already exist in JSONS dir")
-    parser.add_argument("--overwrite", action="store_true", help="Reprocess downloaded data even if cve maps already exist in JSONS dir")
+    parser.add_argument("-c", "--column", type=str, required=True, help="Header name for the package column")
+    parser.add_argument("-r", "--rhel-versions", type=int, nargs="+", required=True, help="List of major rhel versions to match cve matching")
+    parser.add_argument("--skiprows", type=int, nargs="+", help="List of major rhel versions to match cve matching")
+    parser.add_argument("-d", "--data-dir", type=Path, default="data", help="Directory to cache and read JSONs to and from")
+    # parser.add_argument("--skip-download", action="store_true", help="Redownload and overwrite CSAF and VEX jsons even if they already exist in JSONS dir")
+    # parser.add_argument("--overwrite", action="store_true", help="Reprocess downloaded data even if cve maps already exist in JSONS dir")
     # TODO: implement throttling
     #parser.add_argument("-t", "--throttle-download", type=int, default=50, help="Max number of concurrent CVE JSONs download requests")
-    parser.add_argument("--disable-stats", action="store_true", help="Don't print download and process statistics")
+    # parser.add_argument("--disable-stats", action="store_true", help="Don't print download and process statistics")
     parser.add_argument("-v", "--version", action="version", version="%(prog)s v0.1")
 
     # Parse and add vars
@@ -347,10 +340,11 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-
-    # TODO: make sure every argument has a use
-    # --disable-stats
-
-    cols = {"package": "Progiciel", "version": "Version "} # TODO: argparse -> nargs="+", default=[]
-    skiprows = [1] # TODO: argparse -> nargs="+", default=[]
-    get_pkg_cves(args.input, args.data_dir, args, cols, skiprows)
+    get_pkg_cves(
+        args.input,
+        args.column,
+        args.output,
+        args.data_dir,
+        args.rhel_versions,
+        args.skiprows
+    )
