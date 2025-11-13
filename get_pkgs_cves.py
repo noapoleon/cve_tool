@@ -269,6 +269,7 @@ def get_pkg_cves(
         rhel_versions: List[int]|Set[int]|Set[str],
         skiprows: Optional[int] = None,
 ):
+    input = Path(input)
     data_dir = Path(data_dir)
     rhel_versions = {str(rhel) for rhel in rhel_versions}
 
@@ -291,18 +292,33 @@ def get_pkg_cves(
 
     # check normed files for matches
     fails = []
-    cve_pkg_map = {rhel: {} for rhel in rhel_versions}
-    for year, cves in norm_index.items():
-        for cve in cves:
-            # vex_file = json_utils.safe_load(data_dir/archive_name/year/f"{cve}.json") # for more precise data
+    cve_pkg_maps = {rhel: {} for rhel in rhel_versions}
+    with tqdm(total=sum(len(cves) for cves in norm_index.values()), desc="Searching for cve matches") as pbar:
+        for year, cves in norm_index.items():
+            for cve in cves:
+                pbar.update(1)
+                # vex_file = json_utils.safe_load(data_dir/archive_name/year/f"{cve}.json") # for more precise data
 
-            # make set from product status entries
-            product_status_set = archive_utils.get_product_status_set(data_)
-            if product_status_set is None:
-                fails.append(cve)
+                # make set from product status entries
+                norm_filepath = data_dir/archive_name/year/f"{cve}.norm.json"
+                product_status_set = archive_utils.get_product_status_set(norm_filepath)
+                if product_status_set is None:
+                    fails.append(cve)
+                    continue
 
-            # for rhel, pkgs in pkg_sets.items():
-            #     intersect rhel with product_
+                for rhel, pkgs in pkg_sets.items():
+                    inter = pkgs & product_status_set
+                    if inter:
+                        cve_pkg_maps[rhel][cve] = inter
+
+    # write cve_pkg_maps
+    for rhel in cve_pkg_maps:
+        filename = f"{str(input).removesuffix('.xlsx')}.rhel{rhel}.json"
+        json_utils.safe_dump(
+            json_utils.normalize(cve_pkg_maps[rhel]),
+            filename, print_errors=True
+        )
+    # write xlsx
 
 
 

@@ -1,18 +1,16 @@
 import json
 from typing import List, Set, Optional
+from utils import json_utils
 
-d1 = {
+    
+rhel8 = json_utils.safe_load("./test_in/PAR_List_RPM_simple.rhel8.json")
+if rhel8:
+    print("RHEL 8:")
+    print("Stats for provided list of packages")
+    print(f"CVE count -> {len(rhel8)}")
 
-    "product_status": {
-        "fixed": ["1", "2", "3"],
-        "known_affected": ["x", "y", "z", "a"],
-        "known_not_affected": ["a", "b", "c"],
-    }
-}
-
-s = {
-    product
-    for status in d1.get("product_status", {}).values()
-    for product in status
-}
-print(s)
+rhel10 = json_utils.safe_load("./test_in/PAR_List_RPM_simple.rhel10.json")
+if rhel10:
+    print("RHEL 10:")
+    print("Stats for provided list of packages")
+    print(f"CVE count -> {len(rhel10)}")

@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Set
-import json_utils
+from .json_utils import safe_load
 
 def get_archive_name(
         data_dir: Path|str,
@@ -24,7 +24,7 @@ def get_archive_name(
 
 def get_product_status_set(norm_filepath: Path|str) -> Set|None:
     # load norm file
-    norm_data = json_utils.safe_load(norm_filepath)
+    norm_data = safe_load(norm_filepath)
     if norm_data is None:
         return None
     return {
