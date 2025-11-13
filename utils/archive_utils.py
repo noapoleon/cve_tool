@@ -22,13 +22,20 @@ def get_archive_name(
             raise e
     return ""
 
-def get_product_status_set(norm_filepath: Path|str) -> Set|None:
+def get_product_status_set(
+        norm_filepath: Path|str,
+        exclude: set[str] | None = None
+) -> Set|None:
     # load norm file
     norm_data = safe_load(norm_filepath)
     if norm_data is None:
         return None
+
+    exclude = exclude or set()
+
     return {
         product
-        for status in norm_data.get("product_status", {}).values()
-        for product in status
+        for status, products in norm_data.get("product_status", {}).items()
+        if status not in exclude
+        for product in products
     }
