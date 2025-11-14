@@ -23,7 +23,7 @@ def is_latest_archive(data_dir: Path|str) -> bool:
         with open(latest_file, "w", encoding="utf8") as f:
             f.write(r.text.strip())
         # Read archive name
-        archive_name = get_archive_name(data_dir)
+        archive_name = archive_utils.get_archive_name(data_dir)
         # Check if archive exists locally
         if Path(data_dir/archive_name).exists():
             return True
@@ -178,7 +178,8 @@ def get_normed_vex(vex_path: Path|str, rhel_vers: Set[str]) -> dict|None:
 
     # Extract product_status dict
     try:
-        product_status = data.get("vulnerabilities", [])[0].get("product_status")
+        product_status = data.get("vulnerabilities", [])[0].get("product_status", {})
+        remediations = data.get("vulnerabilities", [])[0].get("remediations", {})
     except (AttributeError, IndexError, TypeError):
         # debug here
         return None
@@ -210,9 +211,27 @@ def get_normed_vex(vex_path: Path|str, rhel_vers: Set[str]) -> dict|None:
                 if new_pid:
                     new_product_status[status].add(new_pid)
                     break
+
+    new_remediations = {}
+    for rem in remediations:
+        category = rem.get("category")
+        if category is None:
+            continue
+        new_remediations.setdefault(category, set())
+        pids = rem.get("product_ids")
+        if pids is None:
+            continue
+        for pid in pids:
+            for rhel in rhel_vers:
+                new_pid = _normalize_pid(pid, rhel)
+                if new_pid:
+                    new_remediations[category].add(new_pid)
+                    break
+
     return {
         "rhel_versions": rhel_vers,
-        "product_status": new_product_status
+        "product_status": new_product_status,
+        "remediations": new_remediations,
     }
 
 
@@ -311,7 +330,7 @@ def update_archive(
     up_to_date = is_latest_archive(data_dir)
     if up_to_date:
         print("[INFO] Archive file is up-to-date")
-    archive_name = get_archive_name(data_dir)
+    archive_name = archive_utils.get_archive_name(data_dir)
     archive_dir = archive_name.removesuffix(".tar.zst")
     if not skip_download:
         if not up_to_date:
