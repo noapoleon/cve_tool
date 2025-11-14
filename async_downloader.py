@@ -20,6 +20,7 @@ async def async_downloader(
     max_concurrent: int = 100,
     overwrite: bool = False, # not necessary if on_success implemented
     on_fail: Optional[Callable[[str, str, Exception], None]] = None,
+    on_success: Optional[Callable] = None,
     # TODO: on_success: Optional[Callable[[data, str, str, Exception], None]] = None,
     # TODO: func_progress: Optional[Callable[something...]] = None,
     # TODO: max_retries: int = 0,
@@ -68,9 +69,20 @@ async def async_downloader(
                     # - get json object
                     # - write normal text file
                     # - support other types later (xml, ...)
-                    data = await response.json()
-                    with open(filename, "w", encoding="utf8") as f:
-                        json.dump(data, f, indent=2)
+
+                    # orig
+                    # data = await response.json()
+                    # with open(filename, "w", encoding="utf8") as f:
+                    #     json.dump(data, f, indent=2)
+                    
+                    # test (remove)
+                    if on_success:
+                        on_success(response)
+                    else:
+                        data = await response.json()
+                        with open(filename, "w", encoding="utf8") as f:
+                            json.dump(data, f, indent=2)
+
                     async with lock:
                         stats.success += 1
             except Exception as exc:
@@ -121,16 +133,18 @@ def sync_downloader(
     max_concurrent: int = 100,
     overwrite: bool = False, # not necessary if on_success implemented
     on_fail: Optional[Callable[[str, str, Exception], None]] = None,
+    on_success: Optional[Callable] = None,
 ) -> SimpleNamespace:
     return asyncio.run(async_downloader(
-        url_to_filename,
-        timeout,
-        verify,
-        show_progress,
-        show_stats,
-        max_concurrent,
-        overwrite,
-        on_fail,
+        url_to_filename=url_to_filename,
+        timeout=timeout,
+        verify=verify,
+        show_progress=show_progress,
+        show_stats=show_stats,
+        max_concurrent=max_concurrent,
+        overwrite=overwrite,
+        on_fail=on_fail,
+        on_success=on_success,
     ))
 
 def load_cve_map(input_xlsx: Path) -> dict:
