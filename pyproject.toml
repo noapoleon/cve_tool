@@ -1,0 +1,20 @@
+[project]
+name = "vulnkit"
+version = "0.1.0"
+description = "Toolkit for syncing, parsing and processing vulnerability advisories"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+authors = [
+	{ name = "Noa" }
+]
+
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# TODO: CLI entry point
+[project.scripts]
+vulnkit = "vulnkit.cli:main"

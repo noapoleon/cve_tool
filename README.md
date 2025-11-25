@@ -1,7 +1,11 @@
 # vulnkit (WIP)
 
+> [!CAUTION]
+> Heavy restructuring in progress...
+> Nothing works yet!
+
 Toolkit for syncing, parsing, and analyzing vulnerability/advisory data.
-Currently focused on Red Hat (VEX). CSAF, RHSA, and NVD support planned.
+Currently focused on Red Hat VEX files. CSAF, RHSA, and NVD support planned.
 
 ## Todo
 - Finish Red Hat sync (integrity checks, retry logic, cleanup)
