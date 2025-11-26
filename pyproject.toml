@@ -11,6 +11,7 @@ authors = [
 ]
 
 dependencies = []
+# pathlib
 
 [tool.setuptools.packages.find]
 where = ["src"]
