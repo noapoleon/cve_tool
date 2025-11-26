@@ -9,7 +9,8 @@ release:
 	pip install .
 
 test:
-	python scripts/test_import.py
+	python ./scripts/test_import.py
+	python ./scripts/test_sync.py
 
 clean:
 	pip uninstall -y vulnkit
