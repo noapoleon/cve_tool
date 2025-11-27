@@ -10,8 +10,8 @@ from types import SimpleNamespace
 from typing import Dict, List, Optional, Set
 from tqdm import tqdm
 import pandas as pd
-import async_downloader as adl
-from utils import json_utils, xlsx_utils, archive_utils
+from . import async_downloader as adl
+from .utils import json_utils, xlsx_utils, archive_utils
 
 
 def get_pkg_cves(

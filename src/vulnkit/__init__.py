@@ -1,5 +1,6 @@
-from . import hello
-from . import sync
-from . import config
+from .configuration import Config
+config = Config()
 
-__all__ = ["hello", "sync", "config"]
+from . import sync
+
+__all__ = ["config", "sync"]
