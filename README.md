@@ -15,3 +15,27 @@ Currently focused on Red Hat VEX files. CSAF, RHSA, and NVD support planned.
 - Add query functions (packages -> CVEs, summaries)
 - Add XLSX/CSV export
 - Clean up old scripts and unify CLI
+
+# data structure
+
+data
+	vex
+		redhat
+		nvd
+		github
+	cve
+		redhat
+		nvd
+	csaf
+		redhat
+	
+data
+	redhat
+		vex
+		cve
+		csaf
+	nvd
+		vex
+		cve
+	github
+		csaf
